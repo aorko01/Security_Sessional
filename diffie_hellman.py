@@ -1,9 +1,10 @@
 import random
-import secrets
+import math
+# import secrets
+random.seed(42)
 
-
-def random_n_bits_odd(n):
-    x = secrets.randbits(n)
+def random_n_bits_odd(n:int):
+    x = random.getrandbits(n)
     x|=(1<<(n-1))
     x|=1
     return x    
@@ -28,7 +29,7 @@ def miller_robin_prime_test(number:int,rounds:int):
         if x==1 or x==number-1:
             continue
         for _ in range(s-1):
-            x = pow(a, d, number)
+            x = pow(x, 2, number)
             
             if x== number-1:
                 break
@@ -46,7 +47,66 @@ def generate_n_bit_prime(n:int):
         if miller_robin_prime_test(p,100):
             return p
             break
+def generate_safe_primes(bits):
+    while True:
+        q = generate_n_bit_prime(bits - 1)
+        P = 2 * q + 1
+
+        if miller_robin_prime_test(P, 100):
+            return P, q
+    
+# prime factorization is too slow
+def prime_factors(n:int):
+    factors=set()
+    while n%2==0:
+        factors.add(2)
+        n//=2
+    i=3
+    limit = math.isqrt(n)
+    for i in range(3,n + 1, 2):
+        while n%i==0:
+            factors.add(i)
+            n//=i
+    
+    if n>1:
+        factors.add(n)
+        
+    return list(factors)
+    
+def find_generator(Prime:int,q:int):
+    factors=[q,2]
+    
+    while True:
+        generator=random.randint(2, Prime-2)
+        
+        if not (pow(generator,(Prime-1)//2,Prime)==1 or pow(generator,(Prime-1)//q,Prime)==1):
+            break
+        
+    return generator
+
+def generate_keys(generator: int, prime: int):
+    private = random.randrange(2, prime - 1)
+    public = pow(generator, private, prime)
+    return private, public
+
+
+def verify_shared_secret(A:int,B:int,a:int,b:int,P:int):
+    if pow(B,a,P)!=pow(A,b,P):
+        return False
+    return True
+    
 
 # print("yes" if miller_robin_prime_test(7,100) else "NO")
-print(generate_n_bit_prime(128))
+
+
+P,q=generate_safe_primes(128)
+print(P)
+g=find_generator(P,q)
+print(g)
+a,A=generate_keys(g,P)
+b,B=generate_keys(g,P)
+if verify_shared_secret(A,B,a,b,P):
+    print("correct")
+else :
+    print("incorrect")
     
