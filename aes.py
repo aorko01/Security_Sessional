@@ -1,4 +1,4 @@
-from aes_helpers import Sbox,Rcon,Mixer,gf_mult
+from aes_helpers import Sbox,Rcon,Mixer,gf_mult,InvSbox, InvMixer, gf_mult
 
 def normalize_key(key: str, size: int = 16) -> bytes:
     if size not in (16, 24, 32):
@@ -23,6 +23,13 @@ def substitute_bytes(word:bytes)->bytes:
         
     return bytes(word1)
 
+def inv_substitute_bytes(word: bytes) -> bytes:
+    word1=[]
+    for i in word:
+        word1.append(InvSbox[i])
+        
+    return bytes(word1)
+
 def shift_rows(state: bytes) -> bytes:
     result = bytearray(16)
 
@@ -31,6 +38,16 @@ def shift_rows(state: bytes) -> bytes:
             # ShiftRows: row r is cyclically shifted left by r positions
             src_col = (col + row) % 4
             result[4*col + row] = state[4*src_col + row]
+
+    return bytes(result)
+
+def inv_shift_rows(state: bytes) -> bytes:
+    result = bytearray(16)
+
+    for row in range(4):
+        for col in range(4):
+            src_col = (col - row) % 4
+            result[4 * col + row] = state[4 * src_col + row]
 
     return bytes(result)
 
@@ -49,6 +66,22 @@ def mix_columns(state: bytes) -> bytes:
             )
 
     return bytes(result)
+
+def inv_mix_columns(state: bytes) -> bytes:
+    result = bytearray(16)
+
+    for col in range(4):
+        column = state[4 * col : 4 * col + 4]
+        for row in range(4):
+            result[4 * col + row] = (
+                gf_mult(InvMixer[row][0], column[0])
+                ^ gf_mult(InvMixer[row][1], column[1])
+                ^ gf_mult(InvMixer[row][2], column[2])
+                ^ gf_mult(InvMixer[row][3], column[3])
+            )
+
+    return bytes(result)
+
 
 
 def g(word:bytes,round:int)->bytes:
