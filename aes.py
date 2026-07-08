@@ -1,12 +1,15 @@
 from aes_helpers import Sbox,Rcon
 
-def normalize_key(key: str) -> bytes:
+def normalize_key(key: str, size: int = 16) -> bytes:
+    if size not in (16, 24, 32):
+        raise ValueError("size must be 16, 24, or 32 bytes (128/192/256-bit key)")
+
     key = key.encode('ascii')
 
-    if len(key) < 16:
-        key = key.ljust(16, b'\0')   # pad with null bytes
-    elif len(key) > 16:
-        key = key[:16]               # truncate
+    if len(key) < size:
+        key = key.ljust(size, b'\0')   # pad with null bytes
+    elif len(key) > size:
+        key = key[:size]               # truncate
 
     return key
 
@@ -39,26 +42,36 @@ def g(word:bytes,round:int)->bytes:
 
     return word
 
-def expand_key_round(prev_words: list, round: int) -> list:
-    w0, w1, w2, w3 = prev_words
+def expand_key_round(words: list, i: int, word_count: int) -> bytes:
+    temp = words[i - 1]
 
-    temp = g(w3, round)
+    if i % word_count == 0:
+        temp = g(temp, i // word_count)
+    elif word_count > 6 and i % word_count == 4:
+        temp = substitute_bytes(temp)
 
-    w4 = add_round_key(w0, temp)
-    w5 = add_round_key(w1, w4)
-    w6 = add_round_key(w2, w5)
-    w7 = add_round_key(w3, w6)
-
-    return [w4, w5, w6, w7]
+    return add_round_key(words[i - word_count], temp)
 
 def expand_key(key: bytes) -> list:
-    words = []
-    for i in range(4):
-        word = key[4*i : 4*i + 4]
-        words.append(word)
+    Nk = len(key) // 4  # 4 for AES-128, 6 for AES-192, 8 for AES-256
 
-    for round in range(1, 11):
-        next_words = expand_key_round(words[-4:], round)
+    if Nk == 4:
+        Nr = 10
+    elif Nk == 6:
+        Nr = 12
+    elif Nk == 8:
+        Nr = 14
+    else:
+        raise ValueError(f"Invalid key length: {len(key)} bytes (expected 16, 24, or 32)")
+    
+    
+    total_words = 4 * (Nr + 1)
+    words = []
+    for i in range(Nk):
+        words.append(key[4*i : 4*i + 4])
+
+    for round in range(Nk, total_words):
+        next_words = expand_key_round(words, i, Nk)
         words.extend(next_words)
 
     return words
