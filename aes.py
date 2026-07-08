@@ -1,4 +1,4 @@
-from aes_helpers import Sbox,Rcon
+from aes_helpers import Sbox,Rcon,Mixer,gf_mult
 
 def normalize_key(key: str, size: int = 16) -> bytes:
     if size not in (16, 24, 32):
@@ -23,10 +23,34 @@ def substitute_bytes(word:bytes)->bytes:
         
     return bytes(word1)
 
-def shift_rows(word:bytes)->bytes:
+def shift_rows(state: bytes) -> bytes:
     result = bytearray(16)
-    
-        
+
+    for row in range(4):
+        for col in range(4):
+            # ShiftRows: row r is cyclically shifted left by r positions
+            src_col = (col + row) % 4
+            result[4*col + row] = state[4*src_col + row]
+
+    return bytes(result)
+
+
+def mix_columns(state: bytes) -> bytes:
+    result = bytearray(16)
+
+    for col in range(4):
+        column = state[4*col : 4*col + 4]
+        for row in range(4):
+            result[4*col + row] = (
+                gf_mult(Mixer[row][0], column[0]) ^
+                gf_mult(Mixer[row][1], column[1]) ^
+                gf_mult(Mixer[row][2], column[2]) ^
+                gf_mult(Mixer[row][3], column[3])
+            )
+
+    return bytes(result)
+
+
 def g(word:bytes,round:int)->bytes:
     #rotate
     word=rotate_word(word)
@@ -53,7 +77,7 @@ def expand_key_round(words: list, i: int, word_count: int) -> bytes:
     return add_round_key(words[i - word_count], temp)
 
 def expand_key(key: bytes) -> list:
-    Nk = len(key) // 4  # 4 for AES-128, 6 for AES-192, 8 for AES-256
+    Nk = len(key) // 4
 
     if Nk == 4:
         Nr = 10
@@ -63,16 +87,15 @@ def expand_key(key: bytes) -> list:
         Nr = 14
     else:
         raise ValueError(f"Invalid key length: {len(key)} bytes (expected 16, 24, or 32)")
-    
-    
+
     total_words = 4 * (Nr + 1)
     words = []
     for i in range(Nk):
         words.append(key[4*i : 4*i + 4])
 
     for round in range(Nk, total_words):
-        next_words = expand_key_round(words, i, Nk)
-        words.extend(next_words)
+        next_word = expand_key_round(words, round, Nk)
+        words.append(next_word)
 
     return words
 
