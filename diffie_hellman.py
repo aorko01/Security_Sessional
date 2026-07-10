@@ -1,7 +1,7 @@
 import random
 import math
 # import secrets
-random.seed(42)
+
 
 def random_n_bits_odd(n:int):
     x = random.getrandbits(n)
@@ -89,24 +89,11 @@ def generate_keys(generator: int, prime: int):
     public = pow(generator, private, prime)
     return private, public
 
+def compute_shared_secret(their_public: int, my_private: int, prime: int) -> int:
+    """Compute the Diffie-Hellman shared secret: their_public^my_private mod prime"""
+    return pow(their_public, my_private, prime)
 
 def verify_shared_secret(A:int,B:int,a:int,b:int,P:int):
     if pow(B,a,P)!=pow(A,b,P):
         return False
     return True
-    
-
-# print("yes" if miller_robin_prime_test(7,100) else "NO")
-
-
-P,q=generate_safe_primes(128)
-print(P)
-g=find_generator(P,q)
-print(g)
-a,A=generate_keys(g,P)
-b,B=generate_keys(g,P)
-if verify_shared_secret(A,B,a,b,P):
-    print("correct")
-else :
-    print("incorrect")
-    

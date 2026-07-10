@@ -97,7 +97,7 @@ def ecb_encrypt(plaintext: bytes, key: bytes) -> bytes:
     keys_group = expand_key(key)
     padded = add_padding(plaintext)
     
-    if padded%BLOCK_SIZE!=0:
+    if len(padded)%BLOCK_SIZE!=0:
         raise ValueError("Padding not done properly")
 
     ciphertext = bytearray()

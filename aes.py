@@ -7,9 +7,9 @@ def normalize_key(key: str, size: int = 16) -> bytes:
     key = key.encode('ascii')
 
     if len(key) < size:
-        key = key.ljust(size, b'\0')   # pad with null bytes
+        key = key.ljust(size, b'\0')   
     elif len(key) > size:
-        key = key[:size]               # truncate
+        key = key[:size]              
 
     return key
 
