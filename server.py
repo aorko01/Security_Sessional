@@ -1,5 +1,5 @@
 """
-server.py -- TCP relay server for end-to-end encrypted chat.
+server.py -- TCP relay server for end-to-end encrypted text chat.
 
 The server only forwards encrypted messages between clients.
 It NEVER has access to decryption keys -- true end-to-end encryption.
@@ -12,7 +12,6 @@ import socket
 import threading
 import struct
 import json
-import sys
 
 HOST = "127.0.0.1"
 PORT = 65432
@@ -80,7 +79,7 @@ def handle_client(conn, addr):
             # followed by the binary payload
             newline_pos = raw.find(b"\n")
             if newline_pos == -1:
-                # Malformed – skip
+                # Malformed -- skip
                 continue
 
             header_bytes = raw[:newline_pos]

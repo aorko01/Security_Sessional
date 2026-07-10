@@ -1,11 +1,11 @@
 """
-client.py -- Interactive end-to-end encrypted TCP chat client.
+client.py -- Interactive end-to-end encrypted TCP chat client (text only).
 
 Features:
   - Diffie-Hellman key exchange (per peer) for shared AES key
   - AES encryption in ECB or CBC mode (128 / 192 / 256 bit keys)
-  - Text messaging and file transfer (images, docs, any file type)
-  - Per-pair logging of encrypted / decrypted messages and files
+  - Text messaging only
+  - Per-pair logging of encrypted / decrypted messages
 
 Usage:
     python client.py
@@ -70,7 +70,6 @@ def recv_exact(sock, n: int) -> bytes:
 
 def pair_dir(user_a: str, user_b: str) -> str:
     """Return (and create) the log directory for a sender-receiver pair."""
-    # Sort names so both sides use the same directory
     pair_name = "_".join(sorted([user_a, user_b]))
     path = os.path.join(CHAT_LOG_DIR, pair_name)
     os.makedirs(path, exist_ok=True)
@@ -78,7 +77,7 @@ def pair_dir(user_a: str, user_b: str) -> str:
 
 
 def log_message(user_a: str, user_b: str, direction: str,
-                plaintext: str, ciphertext_hex: str):
+                 plaintext: str, ciphertext_hex: str):
     """Append a message entry to the pair's messages.txt."""
     directory = pair_dir(user_a, user_b)
     filepath = os.path.join(directory, "messages.txt")
@@ -91,57 +90,17 @@ def log_message(user_a: str, user_b: str, direction: str,
         f.write("\n")
 
 
-def save_file_versions(user_a: str, user_b: str, filename: str,
-                       original_data: bytes, encrypted_data: bytes,
-                       decrypted_data: bytes):
-    """Save original, encrypted, and decrypted versions of a transferred file."""
-    directory = pair_dir(user_a, user_b)
-
-    orig_path = os.path.join(directory, "original_" + filename)
-    enc_path = os.path.join(directory, "encrypted_" + filename + ".enc")
-    dec_path = os.path.join(directory, "decrypted_" + filename)
-
-    with open(orig_path, "wb") as f:
-        f.write(original_data)
-    with open(enc_path, "wb") as f:
-        f.write(encrypted_data)
-    with open(dec_path, "wb") as f:
-        f.write(decrypted_data)
-
-    # Also log the file transfer in messages.txt
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    log_path = os.path.join(directory, "messages.txt")
-    with open(log_path, "a") as f:
-        f.write(f"[{timestamp}] FILE TRANSFER: {filename}\n")
-        f.write(f"  Original size : {len(original_data)} bytes\n")
-        f.write(f"  Encrypted size: {len(encrypted_data)} bytes\n")
-        f.write(f"  Decrypted size: {len(decrypted_data)} bytes\n")
-        f.write(f"  Files saved in: {directory}/\n")
-        f.write(f"    - original_{filename}\n")
-        f.write(f"    - encrypted_{filename}.enc\n")
-        f.write(f"    - decrypted_{filename}\n")
-        f.write("\n")
-
-    return orig_path, enc_path, dec_path
-
-
 # ── Diffie-Hellman key derivation ────────────────────────────────────────
 
 def derive_aes_key(shared_secret: int, key_size_bytes: int) -> bytes:
     """
     Derive an AES key from the DH shared secret.
     Uses SHA-256 hash of the shared secret, then truncates to key_size_bytes.
-    This is a simple key derivation -- no external libraries needed.
     """
     secret_bytes = shared_secret.to_bytes(
         (shared_secret.bit_length() + 7) // 8, byteorder="big"
     )
-    # Simple hash-based derivation using SHA-256 (built into Python)
     hash_bytes = hashlib.sha256(secret_bytes).digest()  # 32 bytes
-
-    # For 128-bit key: first 16 bytes
-    # For 192-bit key: first 24 bytes
-    # For 256-bit key: all 32 bytes
     return hash_bytes[:key_size_bytes]
 
 
@@ -157,12 +116,8 @@ class ChatClient:
         self.online_users = []
 
         # Per-peer crypto state
-        # peer_keys[peer_username] = bytes (the derived AES key)
-        self.peer_keys = {}
-
-        # DH state for ongoing key exchanges
-        # dh_state[peer] = {"private": int, "P": int, "g": int, ...}
-        self.dh_state = {}
+        self.peer_keys = {}      # peer_username -> derived AES key (bytes)
+        self.dh_state = {}       # peer_username -> in-progress DH state
 
         self.running = True
 
@@ -171,7 +126,6 @@ class ChatClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((HOST, PORT))
 
-        # Register username
         send_msg(self.sock, self.username.encode("utf-8"))
         reply = recv_msg(self.sock)
         if reply != b"OK":
@@ -181,7 +135,6 @@ class ChatClient:
         print(f"[CONNECTED] Registered as '{self.username}'")
         print(f"[CONFIG] Key size: {self.key_size}-bit | Mode: {self.mode.upper()}")
         print(f"[INFO] Type '@username message' to send a text message")
-        print(f"[INFO] Type '@username /sendfile <filepath>' to send a file")
         print(f"[INFO] Type '/users' to see online users")
         print(f"[INFO] Type '/quit' to exit\n")
 
@@ -202,7 +155,6 @@ class ChatClient:
     def initiate_key_exchange(self, peer: str):
         """Start a DH key exchange with a peer."""
         print(f"[KEY EXCHANGE] Generating DH parameters for {peer}...")
-        # Use 128-bit safe primes (fast enough for demo)
         P, q = generate_safe_primes(128)
         g = find_generator(P, q)
         private, public = generate_keys(g, P)
@@ -214,7 +166,6 @@ class ChatClient:
             "my_public": public,
         }
 
-        # Send DH parameters + our public key to peer
         header = json.dumps({
             "sender": self.username,
             "recipient": peer,
@@ -236,10 +187,8 @@ class ChatClient:
         g = int(header["g"])
         their_public = int(header["public_key"])
 
-        # Generate our own key pair using their P and g
         private, public = generate_keys(g, P)
 
-        # Compute shared secret
         shared_secret = compute_shared_secret(their_public, private, P)
         aes_key = derive_aes_key(shared_secret, self.key_size_bytes)
         self.peer_keys[peer] = aes_key
@@ -247,7 +196,6 @@ class ChatClient:
         print(f"\n[KEY EXCHANGE] Received DH parameters from {peer}")
         print(f"[KEY EXCHANGE] Shared key established with {peer}!")
 
-        # Send back our public key
         reply_header = json.dumps({
             "sender": self.username,
             "recipient": peer,
@@ -268,7 +216,6 @@ class ChatClient:
             print(f"\n[ERROR] Unexpected DH reply from {peer}")
             return
 
-        # Compute shared secret
         shared_secret = compute_shared_secret(
             their_public, state["private"], state["P"]
         )
@@ -279,7 +226,6 @@ class ChatClient:
         print(f"[KEY EXCHANGE] You can now send encrypted messages to {peer}")
         print(f">> ", end="", flush=True)
 
-        # Clean up DH state
         del self.dh_state[peer]
 
     # ── Send text message ─────────────────────────────────────────────
@@ -288,8 +234,6 @@ class ChatClient:
         if peer not in self.peer_keys:
             print(f"[INFO] No shared key with {peer}. Initiating key exchange...")
             self.initiate_key_exchange(peer)
-            # Queue the message -- it will be sent after key exchange
-            # For simplicity, we ask the user to retry
             print(f"[INFO] Please wait for key exchange to complete, then resend.")
             return
 
@@ -297,12 +241,10 @@ class ChatClient:
         plaintext_bytes = message.encode("utf-8")
         ciphertext = self.encrypt(plaintext_bytes, key)
 
-        # Log the sent message
         log_message(self.username, peer,
                     f"SENT ({self.username} -> {peer})",
                     message, _format_hex(ciphertext))
 
-        # Build the wire message
         header = json.dumps({
             "sender": self.username,
             "recipient": peer,
@@ -312,58 +254,6 @@ class ChatClient:
 
         send_msg(self.sock, header + b"\n" + ciphertext)
         print(f"[SENT to {peer}] (encrypted {len(ciphertext)} bytes)")
-
-    # ── Send file ─────────────────────────────────────────────────────
-    def send_file(self, peer: str, filepath: str):
-        """Encrypt and send a file to a peer."""
-        if peer not in self.peer_keys:
-            print(f"[INFO] No shared key with {peer}. Initiating key exchange...")
-            self.initiate_key_exchange(peer)
-            print(f"[INFO] Please wait for key exchange to complete, then resend.")
-            return
-
-        if not os.path.isfile(filepath):
-            print(f"[ERROR] File not found: {filepath}")
-            return
-
-        filename = os.path.basename(filepath)
-        with open(filepath, "rb") as f:
-            file_data = f.read()
-
-        key = self.peer_keys[peer]
-        ciphertext = self.encrypt(file_data, key)
-
-        # Save original and encrypted on sender side
-        directory = pair_dir(self.username, peer)
-        orig_path = os.path.join(directory, "original_" + filename)
-        enc_path = os.path.join(directory, "encrypted_" + filename + ".enc")
-        with open(orig_path, "wb") as f:
-            f.write(file_data)
-        with open(enc_path, "wb") as f:
-            f.write(ciphertext)
-
-        # Log the file transfer
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        log_path = os.path.join(directory, "messages.txt")
-        with open(log_path, "a") as f:
-            f.write(f"[{timestamp}] FILE SENT ({self.username} -> {peer}): {filename}\n")
-            f.write(f"  Original size : {len(file_data)} bytes\n")
-            f.write(f"  Encrypted size: {len(ciphertext)} bytes\n")
-            f.write(f"  Saved: original_{filename}, encrypted_{filename}.enc\n\n")
-
-        # Build the wire message
-        header = json.dumps({
-            "sender": self.username,
-            "recipient": peer,
-            "msg_type": "file",
-            "filename": filename,
-            "original_size": len(file_data),
-            "mode": self.mode,
-        }).encode("utf-8")
-
-        send_msg(self.sock, header + b"\n" + ciphertext)
-        print(f"[FILE SENT to {peer}] {filename} ({len(file_data)} bytes -> "
-              f"{len(ciphertext)} encrypted bytes)")
 
     # ── Receive handlers ──────────────────────────────────────────────
     def handle_text(self, header: dict, payload: bytes):
@@ -383,42 +273,11 @@ class ChatClient:
             print(f">> ", end="", flush=True)
             return
 
-        # Log the received message
         log_message(self.username, sender,
                     f"RECEIVED ({sender} -> {self.username})",
                     message, _format_hex(payload))
 
         print(f"\n[{sender}] {message}")
-        print(f">> ", end="", flush=True)
-
-    def handle_file(self, header: dict, payload: bytes):
-        """Decrypt and save a received file."""
-        sender = header["sender"]
-        filename = header.get("filename", "unknown_file")
-
-        if sender not in self.peer_keys:
-            print(f"\n[ERROR] Received file from {sender} but no shared key!")
-            print(f">> ", end="", flush=True)
-            return
-
-        key = self.peer_keys[sender]
-        try:
-            decrypted_data = self.decrypt(payload, key)
-        except Exception as e:
-            print(f"\n[ERROR] Failed to decrypt file from {sender}: {e}")
-            print(f">> ", end="", flush=True)
-            return
-
-        # Save all three versions
-        orig_path, enc_path, dec_path = save_file_versions(
-            self.username, sender, filename,
-            decrypted_data,  # on receiver side, original = decrypted
-            payload,         # the encrypted bytes
-            decrypted_data   # decrypted bytes
-        )
-
-        print(f"\n[{sender}] Sent file: {filename} ({len(decrypted_data)} bytes)")
-        print(f"  Saved to: {dec_path}")
         print(f">> ", end="", flush=True)
 
     # ── Receiver thread ───────────────────────────────────────────────
@@ -432,7 +291,6 @@ class ChatClient:
                     self.running = False
                     break
 
-                # Split header from payload
                 newline_pos = raw.find(b"\n")
                 if newline_pos == -1:
                     continue
@@ -449,9 +307,6 @@ class ChatClient:
 
                 if msg_type == "text":
                     self.handle_text(header, payload)
-
-                elif msg_type == "file":
-                    self.handle_file(header, payload)
 
                 elif msg_type == "dh_init":
                     self.handle_dh_init(header)
@@ -491,7 +346,6 @@ class ChatClient:
             if not user_input:
                 continue
 
-            # ── Commands ──
             if user_input.lower() == "/quit":
                 print("[QUIT] Goodbye!")
                 self.running = False
@@ -509,7 +363,7 @@ class ChatClient:
             if user_input.startswith("@"):
                 space_pos = user_input.find(" ")
                 if space_pos == -1:
-                    print("[USAGE] @username <message>  or  @username /sendfile <path>")
+                    print("[USAGE] @username <message>")
                     continue
 
                 peer = user_input[1:space_pos]
@@ -519,20 +373,9 @@ class ChatClient:
                     print("[ERROR] You cannot send messages to yourself.")
                     continue
 
-                if content.startswith("/sendfile"):
-                    # File send
-                    parts = content.split(maxsplit=1)
-                    if len(parts) < 2:
-                        print("[USAGE] @username /sendfile <filepath>")
-                        continue
-                    filepath = parts[1].strip()
-                    self.send_file(peer, filepath)
-                else:
-                    # Text message
-                    self.send_text(peer, content)
+                self.send_text(peer, content)
             else:
                 print("[USAGE] @username <message>")
-                print("        @username /sendfile <filepath>")
                 print("        /users    -- list online users")
                 print("        /quit     -- disconnect")
 
@@ -541,14 +384,11 @@ class ChatClient:
         """Connect to server and start send/receive loops."""
         self.connect()
 
-        # Start receiver thread
         recv_thread = threading.Thread(target=self.receive_loop, daemon=True)
         recv_thread.start()
 
-        # Input loop on main thread
         self.input_loop()
 
-        # Cleanup
         try:
             self.sock.close()
         except Exception:
@@ -559,18 +399,17 @@ class ChatClient:
 
 def main():
     print("=" * 55)
-    print("   End-to-End Encrypted Chat Client")
+    print("   End-to-End Encrypted Text Chat Client")
     print("   AES Encryption + Diffie-Hellman Key Exchange")
     print("=" * 55)
     print()
 
-    # Get username
     username = input("Enter your username: ").strip()
     if not username:
         print("Username cannot be empty.")
         sys.exit(1)
 
-    # Get key size
+    # Ask for key size before starting to send/receive
     while True:
         key_input = input("Key size (128 / 192 / 256): ").strip()
         if key_input in ("128", "192", "256"):
@@ -578,7 +417,7 @@ def main():
             break
         print("Invalid key size. Please enter 128, 192, or 256.")
 
-    # Get mode
+    # Ask for mode before starting to send/receive
     while True:
         mode_input = input("Encryption mode (ecb / cbc): ").strip().lower()
         if mode_input in ("ecb", "cbc"):
