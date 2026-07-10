@@ -1,12 +1,4 @@
-"""
-server.py -- TCP relay server for end-to-end encrypted text chat.
 
-The server only forwards encrypted messages between clients.
-It NEVER has access to decryption keys -- true end-to-end encryption.
-
-Usage:
-    python server.py
-"""
 
 import socket
 import threading
@@ -16,20 +8,17 @@ import json
 HOST = "127.0.0.1"
 PORT = 65432
 
-# ── Global state ──────────────────────────────────────────────────────────
+
 clients = {}        # username -> socket
 clients_lock = threading.Lock()
 
 
-# ── Helper: length-prefixed send / recv ───────────────────────────────────
 def send_msg(sock, data: bytes):
-    """Send a message prefixed with its 4-byte big-endian length."""
     length = struct.pack("!I", len(data))
     sock.sendall(length + data)
 
 
 def recv_msg(sock) -> bytes:
-    """Receive a length-prefixed message. Returns None on disconnect."""
     raw_len = recv_exact(sock, 4)
     if raw_len is None:
         return None
@@ -38,7 +27,6 @@ def recv_msg(sock) -> bytes:
 
 
 def recv_exact(sock, n: int) -> bytes:
-    """Read exactly n bytes from a socket."""
     data = b""
     while len(data) < n:
         chunk = sock.recv(n - len(data))
@@ -48,12 +36,10 @@ def recv_exact(sock, n: int) -> bytes:
     return data
 
 
-# ── Client handler ────────────────────────────────────────────────────────
 def handle_client(conn, addr):
-    """Handle one connected client."""
+
     username = None
     try:
-        # Step 1: Client sends its username as the first message
         raw = recv_msg(conn)
         if raw is None:
             return
@@ -63,23 +49,17 @@ def handle_client(conn, addr):
         with clients_lock:
             clients[username] = conn
 
-        # Tell the client their registration succeeded
         send_msg(conn, b"OK")
 
-        # Broadcast updated user list to everyone
         broadcast_user_list()
 
-        # Step 2: Relay loop
         while True:
             raw = recv_msg(conn)
             if raw is None:
                 break
 
-            # The first part is a JSON header (up to the first newline)
-            # followed by the binary payload
             newline_pos = raw.find(b"\n")
             if newline_pos == -1:
-                # Malformed -- skip
                 continue
 
             header_bytes = raw[:newline_pos]
@@ -106,7 +86,6 @@ def handle_client(conn, addr):
                 except Exception:
                     print(f"[SERVER] Failed to relay to {recipient}", flush=True)
             else:
-                # Tell sender that recipient is offline
                 err_header = json.dumps({
                     "sender": "SERVER",
                     "recipient": sender,
@@ -130,7 +109,6 @@ def handle_client(conn, addr):
 
 
 def broadcast_user_list():
-    """Send the current user list to all connected clients."""
     with clients_lock:
         user_list = list(clients.keys())
         header = json.dumps({
@@ -147,7 +125,6 @@ def broadcast_user_list():
                 pass
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
 def main():
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

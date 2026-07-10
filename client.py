@@ -1,15 +1,3 @@
-"""
-client.py -- Interactive end-to-end encrypted TCP chat client (text only).
-
-Features:
-  - Diffie-Hellman key exchange (per peer) for shared AES key
-  - AES encryption in ECB or CBC mode (128 / 192 / 256 bit keys)
-  - Text messaging only
-  - Per-pair logging of encrypted / decrypted messages
-
-Usage:
-    python client.py
-"""
 
 import socket
 import threading
@@ -37,17 +25,12 @@ HOST = "127.0.0.1"
 PORT = 65432
 CHAT_LOG_DIR = "chat_logs"
 
-
-# ── Helper: length-prefixed send / recv ───────────────────────────────────
-
 def send_msg(sock, data: bytes):
-    """Send a message prefixed with its 4-byte big-endian length."""
     length = struct.pack("!I", len(data))
     sock.sendall(length + data)
 
 
 def recv_msg(sock) -> bytes:
-    """Receive a length-prefixed message. Returns None on disconnect."""
     raw_len = recv_exact(sock, 4)
     if raw_len is None:
         return None
@@ -56,7 +39,6 @@ def recv_msg(sock) -> bytes:
 
 
 def recv_exact(sock, n: int) -> bytes:
-    """Read exactly n bytes from a socket."""
     data = b""
     while len(data) < n:
         chunk = sock.recv(n - len(data))
@@ -66,10 +48,7 @@ def recv_exact(sock, n: int) -> bytes:
     return data
 
 
-# ── Pair directory and logging helpers ────────────────────────────────────
-
 def pair_dir(user_a: str, user_b: str) -> str:
-    """Return (and create) the log directory for a sender-receiver pair."""
     pair_name = "_".join(sorted([user_a, user_b]))
     path = os.path.join(CHAT_LOG_DIR, pair_name)
     os.makedirs(path, exist_ok=True)
@@ -78,7 +57,6 @@ def pair_dir(user_a: str, user_b: str) -> str:
 
 def log_message(user_a: str, user_b: str, direction: str,
                  plaintext: str, ciphertext_hex: str):
-    """Append a message entry to the pair's messages.txt."""
     directory = pair_dir(user_a, user_b)
     filepath = os.path.join(directory, "messages.txt")
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -90,21 +68,14 @@ def log_message(user_a: str, user_b: str, direction: str,
         f.write("\n")
 
 
-# ── Diffie-Hellman key derivation ────────────────────────────────────────
 
 def derive_aes_key(shared_secret: int, key_size_bytes: int) -> bytes:
-    """
-    Derive an AES key from the DH shared secret.
-    Uses SHA-256 hash of the shared secret, then truncates to key_size_bytes.
-    """
     secret_bytes = shared_secret.to_bytes(
         (shared_secret.bit_length() + 7) // 8, byteorder="big"
     )
     hash_bytes = hashlib.sha256(secret_bytes).digest()  # 32 bytes
     return hash_bytes[:key_size_bytes]
 
-
-# ── The Client class ─────────────────────────────────────────────────────
 
 class ChatClient:
     def __init__(self, username: str, key_size: int, mode: str):
@@ -121,7 +92,6 @@ class ChatClient:
 
         self.running = True
 
-    # ── Connection ────────────────────────────────────────────────────
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((HOST, PORT))
@@ -138,7 +108,6 @@ class ChatClient:
         print(f"[INFO] Type '/users' to see online users")
         print(f"[INFO] Type '/quit' to exit\n")
 
-    # ── Encrypt / Decrypt wrappers ────────────────────────────────────
     def encrypt(self, plaintext_bytes: bytes, key: bytes) -> bytes:
         if self.mode == "ecb":
             return ecb_encrypt(plaintext_bytes, key)
@@ -151,9 +120,7 @@ class ChatClient:
         else:
             return cbc_decrypt(ciphertext_bytes, key)
 
-    # ── Diffie-Hellman key exchange ───────────────────────────────────
     def initiate_key_exchange(self, peer: str):
-        """Start a DH key exchange with a peer."""
         print(f"[KEY EXCHANGE] Generating DH parameters for {peer}...")
         P, q = generate_safe_primes(128)
         g = find_generator(P, q)
@@ -207,7 +174,6 @@ class ChatClient:
         print(f">> ", end="", flush=True)
 
     def handle_dh_reply(self, header: dict):
-        """Complete the DH key exchange when we receive the peer's public key."""
         peer = header["sender"]
         their_public = int(header["public_key"])
 
@@ -228,9 +194,7 @@ class ChatClient:
 
         del self.dh_state[peer]
 
-    # ── Send text message ─────────────────────────────────────────────
     def send_text(self, peer: str, message: str):
-        """Encrypt and send a text message to a peer."""
         if peer not in self.peer_keys:
             print(f"[INFO] No shared key with {peer}. Initiating key exchange...")
             self.initiate_key_exchange(peer)
@@ -255,9 +219,7 @@ class ChatClient:
         send_msg(self.sock, header + b"\n" + ciphertext)
         print(f"[SENT to {peer}] (encrypted {len(ciphertext)} bytes)")
 
-    # ── Receive handlers ──────────────────────────────────────────────
     def handle_text(self, header: dict, payload: bytes):
-        """Decrypt and display a received text message."""
         sender = header["sender"]
         if sender not in self.peer_keys:
             print(f"\n[ERROR] Received message from {sender} but no shared key!")
@@ -280,9 +242,7 @@ class ChatClient:
         print(f"\n[{sender}] {message}")
         print(f">> ", end="", flush=True)
 
-    # ── Receiver thread ───────────────────────────────────────────────
     def receive_loop(self):
-        """Background thread that receives and processes incoming messages."""
         while self.running:
             try:
                 raw = recv_msg(self.sock)
@@ -332,9 +292,7 @@ class ChatClient:
                     self.running = False
                 break
 
-    # ── Main input loop ───────────────────────────────────────────────
     def input_loop(self):
-        """Read user input and dispatch commands."""
         while self.running:
             try:
                 user_input = input(">> ").strip()
@@ -359,7 +317,6 @@ class ChatClient:
                     print("[ONLINE] No other users online.")
                 continue
 
-            # ── Message to a peer: @username message ──
             if user_input.startswith("@"):
                 space_pos = user_input.find(" ")
                 if space_pos == -1:
@@ -379,7 +336,6 @@ class ChatClient:
                 print("        /users    -- list online users")
                 print("        /quit     -- disconnect")
 
-    # ── Run ───────────────────────────────────────────────────────────
     def run(self):
         """Connect to server and start send/receive loops."""
         self.connect()
@@ -395,7 +351,6 @@ class ChatClient:
             pass
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 55)
@@ -409,7 +364,6 @@ def main():
         print("Username cannot be empty.")
         sys.exit(1)
 
-    # Ask for key size before starting to send/receive
     while True:
         key_input = input("Key size (128 / 192 / 256): ").strip()
         if key_input in ("128", "192", "256"):
@@ -417,7 +371,7 @@ def main():
             break
         print("Invalid key size. Please enter 128, 192, or 256.")
 
-    # Ask for mode before starting to send/receive
+
     while True:
         mode_input = input("Encryption mode (ecb / cbc): ").strip().lower()
         if mode_input in ("ecb", "cbc"):

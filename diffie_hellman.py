@@ -90,7 +90,6 @@ def generate_keys(generator: int, prime: int):
     return private, public
 
 def compute_shared_secret(their_public: int, my_private: int, prime: int) -> int:
-    """Compute the Diffie-Hellman shared secret: their_public^my_private mod prime"""
     return pow(their_public, my_private, prime)
 
 def verify_shared_secret(A:int,B:int,a:int,b:int,P:int):
